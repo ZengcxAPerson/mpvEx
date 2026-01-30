@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -155,10 +156,7 @@ fun PlayerControls(
   val paused by MPVLib.propBoolean["pause"].collectAsState()
   val duration by MPVLib.propInt["duration"].collectAsState()
   val position by MPVLib.propInt["time-pos"].collectAsState()
-  val demuxerCacheDuration by MPVLib.propFloat["demuxer-cache-duration"].collectAsState()
-  val cacheBufferingState by MPVLib.propInt["cache-buffering-state"].collectAsState()
   val playbackSpeed by MPVLib.propFloat["speed"].collectAsState()
-  val gestureSeekAmount by viewModel.gestureSeekAmount.collectAsState()
   val doubleTapSeekAmount by viewModel.doubleTapSeekAmount.collectAsState()
   val showDoubleTapOvals by playerPreferences.showDoubleTapOvals.collectAsState()
   val showSeekTime by playerPreferences.showSeekTimeWhileSeeking.collectAsState()
@@ -262,8 +260,8 @@ fun PlayerControls(
             .background(
               Brush.verticalGradient(
                 Pair(0f, Color.Black),
-                Pair(.2f, Color.Transparent),
-                Pair(.7f, Color.Transparent),
+                Pair(.4f, Color.Transparent),
+                Pair(.6f, Color.Transparent),
                 Pair(1f, Color.Black),
               ),
               alpha = transparentOverlay,
@@ -341,9 +339,9 @@ fun PlayerControls(
           modifier =
             Modifier.constrainAs(brightnessSlider) {
               if (swapVolumeAndBrightness) {
-                start.linkTo(parent.start, spacing.extraLarge)
+                start.linkTo(parent.start, if (isPortrait) spacing.medium else spacing.extraLarge)
               } else {
-                end.linkTo(parent.end, spacing.extraLarge)
+                end.linkTo(parent.end, if (isPortrait) spacing.medium else spacing.extraLarge)
               }
               top.linkTo(parent.top, spacing.larger)
               bottom.linkTo(parent.bottom, spacing.larger)
@@ -371,9 +369,9 @@ fun PlayerControls(
           modifier =
             Modifier.constrainAs(volumeSlider) {
               if (swapVolumeAndBrightness) {
-                end.linkTo(parent.end, spacing.extraLarge)
+                end.linkTo(parent.end, if (isPortrait) spacing.medium else spacing.extraLarge)
               } else {
-                start.linkTo(parent.start, spacing.extraLarge)
+                start.linkTo(parent.start, if (isPortrait) spacing.medium else spacing.extraLarge)
               }
               top.linkTo(parent.top, spacing.larger)
               bottom.linkTo(parent.bottom, spacing.larger)
@@ -419,7 +417,7 @@ fun PlayerControls(
           modifier =
             Modifier.constrainAs(playerUpdates) {
               linkTo(parent.start, parent.end)
-              linkTo(parent.top, parent.bottom, bias = 0.2f)
+              top.linkTo(parent.top, 64.dp)
             },
         ) {
           when (currentPlayerUpdate) {
@@ -462,7 +460,18 @@ fun PlayerControls(
 
             is PlayerUpdates.VideoZoom -> {
               val zoomPercentage = (videoZoom * 100).toInt()
-              TextPlayerUpdate("Zoom: $zoomPercentage%")
+              TextPlayerUpdate(
+                text = String.format("Zoom:%3d%%", zoomPercentage), 
+                modifier = Modifier.width(160.dp),
+              )
+            }
+
+            is PlayerUpdates.HorizontalSeek -> {
+              val seekUpdate = currentPlayerUpdate as PlayerUpdates.HorizontalSeek
+              TextPlayerUpdate(
+                text = "${seekUpdate.currentTime} [${seekUpdate.seekDelta}]",
+                modifier = Modifier.width(220.dp),
+              )
             }
 
             is PlayerUpdates.RepeatMode -> {
@@ -536,16 +545,19 @@ fun PlayerControls(
         }
 
         AnimatedVisibility(
-          visible =
-            (controlsShown && !areControlsLocked || gestureSeekAmount != null) || pausedForCache == true,
+          visible = controlsShown && !areControlsLocked,
           enter = fadeIn(playerControlsEnterAnimationSpec()),
           exit = fadeOut(playerControlsExitAnimationSpec()),
           modifier =
             Modifier.constrainAs(playerPauseButton) {
               end.linkTo(parent.absoluteRight)
               start.linkTo(parent.absoluteLeft)
-              top.linkTo(parent.top)
-              bottom.linkTo(parent.bottom)
+              if (isPortrait) {
+                bottom.linkTo(bottomRightControls.top, spacing.large)
+              } else {
+                top.linkTo(parent.top)
+                bottom.linkTo(parent.bottom)
+              }
             },
         ) {
           val showLoadingCircle by playerPreferences.showLoadingCircle.collectAsState()
@@ -553,31 +565,13 @@ fun PlayerControls(
           val interaction = remember { MutableInteractionSource() }
 
           when {
-            gestureSeekAmount != null -> {
-              val gs = gestureSeekAmount ?: Pair(0, 0)
-              Text(
-                stringResource(
-                  R.string.player_gesture_seek_indicator,
-                  if (gs.second >= 0) '+' else '-',
-                  Utils.prettyTime(abs(gs.second)),
-                  Utils.prettyTime(gs.first + gs.second),
-                ),
-                style =
-                  MaterialTheme.typography.headlineMedium.copy(
-                    shadow = Shadow(Color.Black, blurRadius = 5f),
-                  ),
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-              )
-            }
-
             pausedForCache == true && showLoadingCircle -> {
               LoadingIndicator(
                 modifier = Modifier.size(96.dp),
               )
             }
 
-            controlsShown && !areControlsLocked -> {
+            else -> {
               val buttonShadow =
                 Brush.radialGradient(
                   0.0f to Color.Black.copy(alpha = 0.3f),
@@ -792,7 +786,7 @@ fun PlayerControls(
         }
 
         AnimatedVisibility(
-          visible = (controlsShown || seekBarShown) && !areControlsLocked,
+          visible = controlsShown && !areControlsLocked,
           enter =
             if (!reduceMotion) {
               slideInVertically(playerControlsEnterAnimationSpec()) { it } +
@@ -821,35 +815,17 @@ fun PlayerControls(
                 }
               )
               .constrainAs(seekbar) {
-                bottom.linkTo(parent.bottom, if (isPortrait) 64.dp else spacing.small)
+                if (isPortrait) {
+                  bottom.linkTo(playerPauseButton.top, spacing.small)
+                } else {
+                  bottom.linkTo(parent.bottom, spacing.large)
+                }
                 start.linkTo(parent.start, spacing.medium)
                 end.linkTo(parent.end, spacing.medium)
               },
         ) {
           val invertDuration by playerPreferences.invertDuration.collectAsState()
           val seekbarStyle by appearancePreferences.seekbarStyle.collectAsState()
-
-          // Calculate read-ahead position (current position + buffered cache time)
-          val readAheadPosition by remember(position, demuxerCacheDuration, cacheBufferingState, duration) {
-            derivedStateOf {
-              val currentPos = position?.toFloat() ?: 0f
-              val cacheDuration = demuxerCacheDuration ?: 0f
-              val totalDuration = duration?.toFloat() ?: 0f
-              val isBuffering = cacheBufferingState ?: 0
-
-              // If cache duration is available and valid, use it (up to 60 seconds)
-              if (cacheDuration > 0.1f) {
-                (currentPos + cacheDuration).coerceAtMost(totalDuration)
-              } else if (isBuffering > 0 && isBuffering < 100) {
-                // Show estimated buffer when actively buffering (up to 60 seconds)
-                val estimatedBuffer = (isBuffering / 100f) * 60f
-                (currentPos + estimatedBuffer).coerceAtMost(totalDuration)
-              } else {
-                // When not actively buffering and cache is full, show 1 minute buffer
-                (currentPos + 60f).coerceAtMost(totalDuration)
-              }
-            }
-          }
 
           SeekbarWithTimers(
             position = position?.toFloat() ?: 0f,
@@ -858,7 +834,6 @@ fun PlayerControls(
               isSeeking = true
               resetControlsTimestamp = System.currentTimeMillis()
               viewModel.seekTo(it.toInt())
-              viewModel.autoHideControls()
             },
             onValueChangeFinished = {
               isSeeking = false
@@ -873,7 +848,6 @@ fun PlayerControls(
             positionTimerOnClick = {},
             chapters = chapters.toImmutableList(),
             paused = paused ?: false,
-            readAheadValue = readAheadPosition,
             seekbarStyle = seekbarStyle,
           )
         }
@@ -1035,12 +1009,13 @@ fun PlayerControls(
                 }
               )
               .constrainAs(bottomRightControls) {
-                bottom.linkTo(seekbar.top, spacing.small)
                 if (isPortrait) {
+                  bottom.linkTo(parent.bottom, spacing.large)
                   start.linkTo(parent.start, spacing.medium)
                   end.linkTo(parent.end, spacing.medium)
                   width = Dimension.fillToConstraints
                 } else {
+                  bottom.linkTo(seekbar.top, spacing.small)
                   end.linkTo(parent.end, spacing.medium)
                 }
               },
@@ -1138,6 +1113,7 @@ fun PlayerControls(
             activity = activity,
           )
         }
+
       }
     }
 
